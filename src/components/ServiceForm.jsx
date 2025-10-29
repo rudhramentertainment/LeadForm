@@ -706,7 +706,7 @@ export default function ServiceForm() {
 
       console.log('Submitting lead data:', leadData);
 
-      const response = await fetch('http://194.238.19.57:9000/api/v1/lead/addlead', {
+      const response = await fetch('/api/v1/lead/addlead', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
