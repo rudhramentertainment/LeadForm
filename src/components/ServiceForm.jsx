@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ChevronRight, ChevronLeft, Download, Share2 } from 'lucide-react';
 import './ServiceForm.css';
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const STEPS = [
   'Details',
@@ -721,6 +723,7 @@ export default function ServiceForm() {
       const result = await response.json();
 
       if (result.success) {
+        // FIXED: Use result.data.token instead of result.data.data.token
         setSubmissionToken(result.data.token);
         setShowConfirmation(true);
       } else {
@@ -739,42 +742,213 @@ export default function ServiceForm() {
   };
 
   const handleDownloadPDF = () => {
-    const pdfContent = `
-      Rudhram Entertainment - Inquiry Confirmation
-      
-      Token: ${submissionToken}
-      Name: ${formData.customer_name}
-      Email: ${formData.customer_email}
-      Phone: ${formData.customer_phone}
-      Business: ${formData.business_name}
-      Category: ${formData.business_category}
-      Birth Date: ${formData.birthDate || 'Not provided'}
-      Anniversary Date: ${formData.anniversaryDate || 'Not provided'}
-      Company Establish Date: ${formData.companyEstablishDate || 'Not provided'}
-      
-      Selected Services:
-      ${formData.services.map(service => {
-      const subCompany = SUBCOMPANIES.find(sc => sc._id === service.subCompanyId);
-      return `
-        ${subCompany?.name} - ${service.title}:
-          ${service.selectedOfferings.map(offering => `• ${offering}`).join('\n          ')}`;
-    }).join('\n')}
-      
-      Project Details: ${formData.project_details}
-      
-      Submitted on: ${new Date().toLocaleString()}
-    `;
+  const generatePDF = async () => {
+    const doc = new jsPDF({
+      orientation: "portrait",
+      unit: "pt",
+      format: "a4",
+    });
 
-    const blob = new Blob([pdfContent], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Rudhram-Inquiry-${submissionToken}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 40;
+    const primary = "#B87333";
+    const accent = "#D1A574";
+    const background = "#F5E6D3";
+
+    // ✅ Load logo safely from public folder
+    let logo = null;
+    try {
+      const img = new Image();
+      img.src = `${window.location.origin}/logo.png`;
+      await new Promise((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject();
+      });
+      logo = img;
+    } catch (e) {
+      console.warn("Logo failed to load, continuing without it.");
+    }
+
+    // 🟤 HEADER
+    if (logo) {
+      doc.addImage(logo, "PNG", margin, 30, 60, 60);
+    }
+
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(22);
+    doc.setTextColor(primary);
+    doc.text("Rudhram Entertainment", margin + 80, 60);
+    doc.setFontSize(12);
+    doc.setTextColor("#444");
+    doc.text("Inquiry Confirmation Document", margin + 80, 80);
+
+    doc.setDrawColor(accent);
+    doc.setLineWidth(1);
+    doc.line(margin, 100, pageWidth - margin, 100);
+
+    let y = 120;
+
+    // 🧾 Lead details
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(primary);
+    doc.text("Lead Information", margin, y);
+    y += 10;
+
+    doc.setFont("Helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor("#333");
+
+    const details = [
+      ["Inquiry Token", submissionToken || "N/A"],
+      ["Name", formData.customer_name || "-"],
+      ["Email", formData.customer_email || "-"],
+      ["Phone", formData.customer_phone || "-"],
+      ["Business Name", formData.business_name || "-"],
+      ["Business Category", formData.business_category || "-"],
+    ];
+
+    autoTable(doc, {
+      startY: y + 10,
+      head: [["Field", "Value"]],
+      body: details,
+      styles: { halign: "left", textColor: "#111" },
+      headStyles: {
+        fillColor: primary,
+        textColor: "#fff",
+        fontStyle: "bold",
+      },
+      alternateRowStyles: { fillColor: background },
+      theme: "striped",
+      margin: { left: margin, right: margin },
+    });
+
+    y = doc.lastAutoTable.finalY + 20;
+
+    // 🧩 Services Table
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(primary);
+    doc.text("Selected Services", margin, y);
+    y += 10;
+
+    if (formData.services && formData.services.length > 0) {
+      const serviceRows = formData.services.flatMap((svc) => {
+        const subCompany = SUBCOMPANIES.find(
+          (sc) => sc._id === svc.subCompanyId
+        );
+        const title = `${subCompany?.name || ""} - ${svc.title || ""}`;
+        return svc.selectedOfferings.length > 0
+          ? svc.selectedOfferings.map((off) => [title, off])
+          : [[title, "No specific offerings"]];
+      });
+
+      autoTable(doc, {
+        startY: y + 10,
+        head: [["Service", "Offering"]],
+        body: serviceRows,
+        styles: { fontSize: 10, textColor: "#111" },
+        headStyles: {
+          fillColor: primary,
+          textColor: "#fff",
+          fontStyle: "bold",
+        },
+        alternateRowStyles: { fillColor: background },
+        theme: "grid",
+        margin: { left: margin, right: margin },
+      });
+      y = doc.lastAutoTable.finalY + 20;
+    } else {
+      doc.setFont("Helvetica", "italic");
+      doc.text("No services selected", margin, y);
+      y += 16;
+    }
+
+    // 📝 Project Details
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(primary);
+    doc.text("Project Details", margin, y);
+    y += 10;
+
+    doc.setFont("Helvetica", "normal");
+    doc.setFontSize(11);
+    const projectText = formData.project_details || "N/A";
+    const wrapped = doc.splitTextToSize(projectText, pageWidth - margin * 2);
+    doc.text(wrapped, margin, y + 10);
+
+    // 🧡 FOOTER
+    const footerY = 810;
+    doc.setDrawColor(accent);
+    doc.setLineWidth(0.5);
+    doc.line(margin, footerY - 20, pageWidth - margin, footerY - 20);
+
+    doc.setFontSize(10);
+    doc.setTextColor("#666");
+    doc.text(
+      "Thank you for choosing Rudhram Entertainment.",
+      margin,
+      footerY - 5
+    );
+    doc.text(
+      `Generated on: ${new Date().toLocaleString()}`,
+      margin,
+      footerY + 10
+    );
+
+    doc.save(`Rudhram-Inquiry-${submissionToken || "token"}.pdf`);
   };
+
+  // Run it after the click to ensure browser trusts user gesture
+  generatePDF();
+};
+
+
+
+  // 📱 Share via WhatsApp (prefilled message)
+  const handleWhatsAppShare = () => {
+    const phone = formData.customer_phone?.replace(/\D/g, "") || "";
+    if (!phone) {
+      alert("Client phone number missing!");
+      return;
+    }
+
+    const messageLines = [
+      `🎯 *Rudhram Entertainment - Inquiry Confirmation*`,
+      ``,
+      `Hello *${formData.customer_name || "Client"}*,`,
+      `Your inquiry has been successfully submitted.`,
+      ``,
+      `*Inquiry Token:* ${submissionToken || "N/A"}`,
+      `*Email:* ${formData.customer_email || "N/A"}`,
+      `*Phone:* ${formData.customer_phone || "N/A"}`,
+      ``,
+      `*Selected Services:*`,
+      ...(formData.services?.length
+        ? formData.services.flatMap((svc) => {
+          const subCompany = SUBCOMPANIES.find(
+            (sc) => sc._id === svc.subCompanyId
+          );
+          const svcName = `${subCompany?.name || ""} - ${svc.title || ""}`;
+          const offerings = svc.selectedOfferings.length
+            ? svc.selectedOfferings.map((o) => `   • ${o}`)
+            : ["   • No specific offerings"];
+          return [`${svcName}:`, ...offerings, ""];
+        })
+        : ["No services selected"]),
+      ``,
+      `*Project Details:*`,
+      `${formData.project_details || "N/A"}`,
+      ``,
+      `Thank you for choosing Rudhram Entertainment! 💫`,
+    ];
+
+    const msg = encodeURIComponent(messageLines.join("\n"));
+    const whatsappUrl = `https://wa.me/${phone}?text=${msg}`;
+    window.open(whatsappUrl, "_blank");
+  };
+
+
 
   const handleShare = async () => {
     const shareData = {
@@ -1096,6 +1270,7 @@ export default function ServiceForm() {
           onClose={() => setShowConfirmation(false)}
           onDownload={handleDownloadPDF}
           onShare={handleShare}
+          whatsappshare={handleWhatsAppShare}
         />
       )}
     </>
@@ -1144,7 +1319,7 @@ function ServiceBlock({ subCompany, service, selectedServices, onServiceChange, 
   );
 }
 
-function ConfirmationPopup({ token, onClose, onDownload, onShare }) {
+function ConfirmationPopup({ token, onClose, onDownload, onShare ,whatsappshare}) {
   return (
     <div className="confirmation-popup" onClick={onClose}>
       <div className="popup-content" onClick={(e) => e.stopPropagation()}>
@@ -1167,6 +1342,14 @@ function ConfirmationPopup({ token, onClose, onDownload, onShare }) {
             <Share2 size={18} style={{ marginRight: '0.5rem' }} />
             Share
           </button>
+          <button
+            className="action-btn whatsapp-btn"
+            style={{ backgroundColor: "#25D366", color: "white" }}
+            onClick={whatsappshare}
+          >
+            <i className="fab fa-whatsapp" style={{ marginRight: "0.5rem" }}></i>
+            WhatsApp
+          </button>
         </div>
       </div>
     </div>
@@ -1176,12 +1359,12 @@ function ConfirmationPopup({ token, onClose, onDownload, onShare }) {
 // Helper function to get subcompany descriptions
 function getSubCompanyDescription(name) {
   const descriptions = {
-    'Aghhori': 'Digital & Creative Partner',
-    'Damru': 'The Sound of Success',
-    'Jogi': 'Bridging Artists and Brands',
-    'Tandavs': 'Unleashing Live Entertainment',
-    'Panigrahna': 'Capturing Moments',
-    'Kalyaanam': 'Crafting Dream Events'
+    Aghhori: "Digital & Creative Partner",
+    Damru: "The Sound of Success",
+    Jogi: "Bridging Artists and Brands",
+    Tandavs: "Unleashing Live Entertainment",
+    Panigrahna: "Capturing Moments",
+    Kalyaanam: "Crafting Dream Events"
   };
-  return descriptions[name] || '';
+  return descriptions[name] || "";
 }
