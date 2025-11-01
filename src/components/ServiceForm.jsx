@@ -972,7 +972,7 @@ export default function ServiceForm() {
     <>
       <div className="container">
         <header className="mobile-header">
-          <img style={{ height: '90px' }} src="https://via.placeholder.com/90x90/B4783A/ffffff?text=R" alt="Logo" />
+          <img style={{ height: '90px' }} src="../../public/logo.png" alt="Logo" />
           <h1 style={{ fontSize: '30px' }}>Rudhram Entertainment</h1>
         </header>
 
